@@ -253,6 +253,9 @@ public:
 	// 3 if the texture is found in a NiTexturingProperty block
 	uint32_t GetTextureSlot(NiShape* shape, std::string& outTexFile, uint32_t texIndex = 0) const;
 
+	// Returns the texture path with the specified slot index.
+	std::string GetTexturePathByIndex(NiShape* shape, uint32_t texIndex = 0) const;
+
 	// Sets texture path in the specified slot.
 	// Will fill path in both BSShaderTextureSet, BSEffectShaderProperty or NiTexturingProperty blocks.
 	void SetTextureSlot(NiShape* shape, std::string& inTexFile, uint32_t texIndex = 0);

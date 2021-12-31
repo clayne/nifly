@@ -790,6 +790,12 @@ uint32_t NifFile::GetTextureSlot(NiShape* shape, std::string& outTexFile, uint32
 	return 0;
 }
 
+std::string NifFile::GetTexturePathByIndex(NiShape* shape, uint32_t texIndex) const {
+	std::string outTexFile;
+	GetTextureSlot(shape, outTexFile, texIndex);
+	return outTexFile;
+}
+
 void NifFile::SetTextureSlot(NiShape* shape, std::string& inTexFile, uint32_t texIndex) {
 	auto shader = GetShader(shape);
 	if (shader) {
