@@ -615,6 +615,10 @@ float BSLightingShaderProperty::GetAlpha() const {
 	return alpha;
 }
 
+void BSLightingShaderProperty::SetAlpha(const float alphaValue) {
+	alpha = alphaValue;
+}
+
 float BSLightingShaderProperty::GetBacklightPower() const {
 	return backlightPower;
 }
@@ -805,6 +809,11 @@ void NiAlphaProperty::Sync(NiStreamReversible& stream) {
 
 
 void NiMaterialProperty::Sync(NiStreamReversible& stream) {
+	const NiFileVersion fileVersion = stream.GetVersion().File();
+
+	if (fileVersion >= NiFileVersion::V3_0 && fileVersion <= NiFileVersion::V10_0_1_2)
+		stream.Sync(legacyFlags);
+
 	if (stream.GetVersion().Stream() < 26) {
 		stream.Sync(colorAmbient);
 		stream.Sync(colorDiffuse);
@@ -869,12 +878,16 @@ float NiMaterialProperty::GetAlpha() const {
 	return alpha;
 }
 
+void NiMaterialProperty::SetAlpha(const float alphaValue) {
+	alpha = alphaValue;
+}
+
 
 void NiStencilProperty::Sync(NiStreamReversible& stream) {
 	const NiFileVersion fileVersion = stream.GetVersion().File();
 
-	if (fileVersion <= NiFileVersion::V10_0_1_2)
-		stream.Sync(flags);
+	if (fileVersion >= NiFileVersion::V3_0 && fileVersion <= NiFileVersion::V10_0_1_2)
+		stream.Sync(legacyFlags);
 
 	if (fileVersion <= NiFileVersion::V20_0_0_5) {
 		stream.Sync(stencilEnabled);

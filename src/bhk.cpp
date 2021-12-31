@@ -497,6 +497,8 @@ void bhkRigidBody::GetChildIndices(std::vector<uint32_t>& indices) {
 
 
 void bhkConstraint::Sync(NiStreamReversible& stream) {
+	entityRefs.SetKeepEmptyRefs();
+	entityRefs.SetSize(2);
 	entityRefs.Sync(stream);
 
 	stream.Sync(priority);
@@ -522,6 +524,8 @@ void bhkLimitedHingeConstraint::Sync(NiStreamReversible& stream) {
 void ConstraintData::Sync(NiStreamReversible& stream) {
 	stream.Sync(type);
 
+	entityRefs.SetKeepEmptyRefs();
+	entityRefs.SetSize(2);
 	entityRefs.Sync(stream);
 	stream.Sync(priority);
 

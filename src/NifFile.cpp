@@ -205,7 +205,7 @@ int NifFile::Load(std::istream& file, const NifLoadOptions& options) {
 		}
 
 		NiVersion& version = stream.GetVersion();
-		if (!(version.IsOB() || version.IsFO3() || version.IsSK() || version.IsSSE() || version.IsFO4())) {
+		if (!(version.IsOB() || version.IsFO3() || version.IsSK() || version.IsSSE() || version.IsFO4() || version.IsSpecial())) {
 			// Unsupported file version
 			Clear();
 			return 2;
@@ -381,7 +381,7 @@ void NifFile::SortGraph(NiNode* root, std::vector<uint32_t>& newIndices, uint32_
 			auto peek = children.end() - 1;
 
 			// Put shapes at end of children
-			for (int i = children.GetSize() - 1; i >= 0; i--) {
+			for (uint32_t i = children.GetSize() - 1; i != NIF_NPOS; i--) {
 				auto shape = hdr.GetBlock<NiShape>(children.GetBlockRef(i));
 				if (shape) {
 					std::iter_swap(bookmark, peek);
@@ -537,7 +537,9 @@ bool NifFile::CanDeleteNode(NiNode* node) {
 	node->GetChildRefs(refs);
 
 	// Only delete if the node has no child refs
-	return std::all_of(refs.begin(), refs.end(), std::not_fn(&NiRef::IsEmpty));
+	return std::all_of(refs.cbegin(), refs.cend(), [](auto&& ref) {
+		return ref->IsEmpty();
+	});
 }
 
 bool NifFile::CanDeleteNode(const std::string& nodeName) const {
@@ -632,6 +634,71 @@ NiTexturingProperty* NifFile::GetTexturingProperty(NiShape* shape) const {
 	}
 
 	return nullptr;
+}
+
+std::vector<std::reference_wrapper<std::string>> NifFile::GetTexturePathRefs(NiShape* shape) const {
+	std::vector<std::reference_wrapper<std::string>> texturePaths;
+
+	auto shader = GetShader(shape);
+	if (shader) {
+		auto textureSet = hdr.GetBlock(shader->TextureSetRef());
+		if (textureSet) {
+			for (auto &t : textureSet->textures)
+				texturePaths.push_back(t.get());
+		}
+
+		auto effectShader = dynamic_cast<BSEffectShaderProperty*>(shader);
+		if (effectShader) {
+			texturePaths.push_back(effectShader->sourceTexture.get());
+			texturePaths.push_back(effectShader->normalTexture.get());
+			texturePaths.push_back(effectShader->greyscaleTexture.get());
+			texturePaths.push_back(effectShader->envMapTexture.get());
+			texturePaths.push_back(effectShader->envMaskTexture.get());
+		}
+	}
+
+	// Get texture path from referenced NiSourceTexture block
+	auto pushSourceTexturePath = [&hdr = hdr, &texturePaths](const NiBlockRef<NiSourceTexture>& sourceRef) {
+		auto sourceTexture = hdr.GetBlock(sourceRef);
+		if (sourceTexture)
+			texturePaths.push_back(sourceTexture->fileName.get());
+	};
+
+	// NiTexturingProperty and NiSourceTexture for OB
+	auto texturingProp = GetTexturingProperty(shape);
+	if (texturingProp) {
+		if (texturingProp->hasBaseTex)
+			pushSourceTexturePath(texturingProp->baseTex.sourceRef);
+
+		if (texturingProp->hasDarkTex)
+			pushSourceTexturePath(texturingProp->darkTex.sourceRef);
+
+		if (texturingProp->hasDetailTex)
+			pushSourceTexturePath(texturingProp->detailTex.sourceRef);
+
+		if (texturingProp->hasGlossTex)
+			pushSourceTexturePath(texturingProp->glossTex.sourceRef);
+
+		if (texturingProp->hasGlowTex)
+			pushSourceTexturePath(texturingProp->glowTex.sourceRef);
+
+		if (texturingProp->hasBumpTex)
+			pushSourceTexturePath(texturingProp->bumpTex.sourceRef);
+
+		if (texturingProp->hasDecalTex0)
+			pushSourceTexturePath(texturingProp->decalTex0.sourceRef);
+
+		if (texturingProp->hasDecalTex1)
+			pushSourceTexturePath(texturingProp->decalTex1.sourceRef);
+
+		if (texturingProp->hasDecalTex2)
+			pushSourceTexturePath(texturingProp->decalTex2.sourceRef);
+
+		if (texturingProp->hasDecalTex3)
+			pushSourceTexturePath(texturingProp->decalTex3.sourceRef);
+	}
+
+	return texturePaths;
 }
 
 uint32_t NifFile::GetTextureSlot(NiShape* shape, std::string& outTexFile, uint32_t texIndex) const {
@@ -806,7 +873,7 @@ void NifFile::SetTextureSlot(NiShape* shape, std::string& inTexFile, uint32_t te
 }
 
 void NifFile::TrimTexturePaths() {
-	auto fTrimPath = [&isTerrain = isTerrain](std::string& tex) -> std::string& {
+	auto fTrimPath = [&hdr = hdr, &isTerrain = isTerrain](std::string& tex) -> std::string& {
 		if (!tex.empty()) {
 			tex = std::regex_replace(tex,
 									 std::regex("/+|\\\\+"),
@@ -815,10 +882,13 @@ void NifFile::TrimTexturePaths() {
 									 std::regex(R"(^(.*?)\\textures\\)", std::regex_constants::icase),
 									 ""); // Remove everything before the first occurence of "\textures\"
 			tex = std::regex_replace(tex, std::regex("^\\\\+"), ""); // Remove all backslashes from the front
-			tex = std::regex_replace(
-				tex,
-				std::regex("^(?!^textures\\\\)", std::regex_constants::icase),
-				"textures\\"); // If the path doesn't start with "textures\", add it to the front
+
+			if (!hdr.GetVersion().IsOB() && !hdr.GetVersion().IsSpecial()) {
+				tex = std::regex_replace(
+					tex,
+					std::regex("^(?!^textures\\\\)", std::regex_constants::icase),
+					"textures\\"); // If the path doesn't start with "textures\", add it to the front
+			}
 
 			if (isTerrain)
 				tex = std::regex_replace(tex,
@@ -1988,10 +2058,28 @@ void NifFile::GetTree(std::vector<NiObject*>& result, NiObject* parent) const {
 		}
 	}
 
+	auto constraintChain = dynamic_cast<bhkBallSocketConstraintChain*>(parent);
+	if (constraintChain) {
+		for (auto& entityId : constraintChain->chainedEntityRefs) {
+			auto entity = hdr.GetBlock<NiObject>(entityId);
+			if (entity && !findResult(entity))
+				GetTree(result, entity);
+		}
+
+		auto entityA = hdr.GetBlock<NiObject>(constraintChain->entityARef);
+		if (entityA && !findResult(entityA))
+			GetTree(result, entityA);
+
+		auto entityB = hdr.GetBlock<NiObject>(constraintChain->entityBRef);
+		if (entityB && !findResult(entityB))
+			GetTree(result, entityB);
+	}
+
 	for (auto& id : indices) {
 		auto child = hdr.GetBlock<NiObject>(id);
 		if (child && !findResult(child)) {
-			bool childBeforeParent = child->HasType<bhkRefObject>() && !child->HasType<bhkConstraint>();
+			bool childBeforeParent = child->HasType<bhkRefObject>() && !child->HasType<bhkConstraint>()
+									 && !child->HasType<bhkBallSocketConstraintChain>();
 			if (childBeforeParent)
 				GetTree(result, child);
 		}
@@ -2002,7 +2090,8 @@ void NifFile::GetTree(std::vector<NiObject*>& result, NiObject* parent) const {
 	for (auto& id : indices) {
 		auto child = hdr.GetBlock<NiObject>(id);
 		if (child && !findResult(child)) {
-			bool childBeforeParent = child->HasType<bhkRefObject>() && !child->HasType<bhkConstraint>();
+			bool childBeforeParent = child->HasType<bhkRefObject>() && !child->HasType<bhkConstraint>()
+									 && !child->HasType<bhkBallSocketConstraintChain>();
 			if (!childBeforeParent)
 				GetTree(result, child);
 		}
@@ -3691,7 +3780,11 @@ void NifFile::DeleteShape(NiShape* shape) {
 	if (shape->HasData())
 		hdr.DeleteBlock(*shape->DataRef());
 
-	DeleteShader(shape);
+	if (shape->HasShaderProperty()) {
+		if (hdr.GetBlockRefCount(shape->ShaderPropertyRef()->index) == 1)
+			DeleteShader(shape);
+	}
+
 	DeleteSkinning(shape);
 
 	for (int i = shape->propertyRefs.GetSize() - 1; i >= 0; --i)
@@ -3707,8 +3800,10 @@ void NifFile::DeleteShape(NiShape* shape) {
 void NifFile::DeleteShader(NiShape* shape) {
 	auto shader = hdr.GetBlock(shape->ShaderPropertyRef());
 	if (shader) {
-		if (shader->HasTextureSet())
-			hdr.DeleteBlock(*shader->TextureSetRef());
+		if (shader->HasTextureSet()) {
+			if (hdr.GetBlockRefCount(shader->TextureSetRef()->index) == 1)
+				hdr.DeleteBlock(*shader->TextureSetRef());
+		}
 
 		hdr.DeleteBlock(shader->controllerRef);
 		hdr.DeleteBlock(*shape->ShaderPropertyRef());
@@ -3721,8 +3816,10 @@ void NifFile::DeleteShader(NiShape* shape) {
 		shader = hdr.GetBlock<NiShader>(shape->propertyRefs.GetBlockRef(i));
 		if (shader) {
 			if (shader->HasType<BSShaderPPLightingProperty>() || shader->HasType<NiMaterialProperty>()) {
-				if (shader->HasTextureSet())
-					hdr.DeleteBlock(*shader->TextureSetRef());
+				if (shader->HasTextureSet()) {
+					if (hdr.GetBlockRefCount(shader->TextureSetRef()->index) == 1)
+						hdr.DeleteBlock(*shader->TextureSetRef());
+				}
 
 				hdr.DeleteBlock(shader->controllerRef);
 				hdr.DeleteBlock(shape->propertyRefs.GetBlockRef(i));
@@ -3838,7 +3935,7 @@ bool NifFile::DeleteVertsForShape(NiShape* shape, const std::vector<uint16_t>& i
 			uint16_t mapSize = highestRemoved + 1;
 			std::vector<int> indexCollapse = GenerateIndexCollapseMap(indices, mapSize);
 
-			for (int i = integersData.size() - 1; i >= 0; i--) {
+			for (uint32_t i = integersData.size() - 1; i != NIF_NPOS; i--) {
 				auto& val = integersData[i];
 				if (val > highestRemoved) {
 					val -= static_cast<uint32_t>(indices.size());

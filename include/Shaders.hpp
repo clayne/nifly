@@ -84,6 +84,8 @@ public:
 	uint16_t flags = 0; // TexturingMapFlags
 	uint16_t maxAnisotropy = 0;
 	uint32_t uvSet = 0;
+	int16_t ps2_l = 0;
+	int16_t ps2_k = -75;
 	bool hasTexTransform = false;
 	TexTransform transform;
 
@@ -96,6 +98,12 @@ public:
 		if (fileVersion <= NiFileVersion::V20_0_0_5) {
 			stream.Sync(clampMode);
 			stream.Sync(filterMode);
+			stream.Sync(uvSet);
+
+			if (fileVersion < NiFileVersion::V10_4_0_1) {
+				stream.Sync(ps2_l);
+				stream.Sync(ps2_k);
+			}
 		}
 
 		if (fileVersion >= NiFileVersion::V20_1_0_3)
@@ -103,9 +111,6 @@ public:
 
 		if (fileVersion >= NiVersion::ToFile(20, 5, 0, 4))
 			stream.Sync(maxAnisotropy);
-
-		if (fileVersion <= NiFileVersion::V20_0_0_5)
-			stream.Sync(uvSet);
 
 		if (fileVersion >= NiFileVersion::V10_1_0_0) {
 			stream.Sync(hasTexTransform);
@@ -303,6 +308,7 @@ public:
 	virtual float GetEmissiveMultiple() const { return 0.0f; }
 	virtual void SetEmissiveMultiple(const float) {}
 	virtual float GetAlpha() const { return 1.0f; }
+	virtual void SetAlpha(const float) {}
 	virtual float GetBacklightPower() const { return 0.0f; }
 	virtual float GetRimlightPower() const { return 2.0f; }
 	virtual float GetSoftlight() const { return 0.3f; }
@@ -503,6 +509,7 @@ public:
 	float GetEmissiveMultiple() const override;
 	void SetEmissiveMultiple(const float emissive) override;
 	float GetAlpha() const override;
+	void SetAlpha(const float alphaValue) override;
 	float GetBacklightPower() const override;
 	float GetRimlightPower() const override;
 	float GetSoftlight() const override;
@@ -675,6 +682,7 @@ public:
 
 STREAMABLECLASSDEF(NiMaterialProperty, NiShader) {
 protected:
+	uint16_t legacyFlags = 0;
 	Vector3 colorSpecular = Vector3(1.0f, 1.0f, 1.0f);
 	Vector3 colorEmissive;
 	float glossiness = 10.0f;
@@ -701,6 +709,7 @@ public:
 	float GetEmissiveMultiple() const override;
 	void SetEmissiveMultiple(const float emissive) override;
 	float GetAlpha() const override;
+	void SetAlpha(const float alpha) override;
 };
 
 enum StencilMasks {
@@ -721,6 +730,7 @@ enum DrawMode { DRAW_CCW_OR_BOTH, DRAW_CCW, DRAW_CW, DRAW_BOTH, DRAW_MAX };
 
 STREAMABLECLASSDEF(NiStencilProperty, NiProperty) {
 public:
+	uint16_t legacyFlags = 0;
 	uint16_t flags = 19840;
 	bool stencilEnabled = false;
 	uint32_t stencilFunction = 0;
