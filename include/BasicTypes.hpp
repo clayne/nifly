@@ -1099,12 +1099,9 @@ public:
 	uint32_t ReplaceBlock(const uint32_t oldBlockId, NiObject* newBlock);
 
 	void SetBlockOrder(std::vector<uint32_t>& newOrder);
-	void FixBlockAlignment(const std::vector<NiObject*>& currentTree);
 
-	// Swaps two blocks, updating references in other blocks that may refer to their old indices
-	void SwapBlocks(const uint32_t blockIndexLo, const uint32_t blockIndexHi);
-	bool IsBlockReferenced(const uint32_t blockId);
-	int GetBlockRefCount(const uint32_t blockId);
+	bool IsBlockReferenced(const uint32_t blockId, bool includePtrs = true);
+	int GetBlockRefCount(const uint32_t blockId, bool includePtrs = true);
 
 	// Deletes all unreferenced (loose) blocks of the given type starting at the specified root.
 	// Use template type "NiObject" for all block types.
@@ -1165,7 +1162,6 @@ public:
 	void UpdateHeaderStrings(const bool hasUnknown);
 
 	static void BlockDeleted(NiObject* o, const uint32_t blockId);
-	static void BlockSwapped(NiObject* o, const uint32_t blockIndexLo, const uint32_t blockIndexHi);
 
 	void Get(NiIStream& stream) override;
 	void Put(NiOStream& stream) override;
