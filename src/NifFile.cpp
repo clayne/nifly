@@ -250,229 +250,418 @@ void NifFile::SetShapeOrder(const std::vector<std::string>& order) {
 	if (hasUnknown)
 		return;
 
-	std::vector<int64_t> delta;
-	bool hadoffset = false;
-
-	// Have to do this in multiple passes
-	do {
-		std::vector<std::string> oldOrder = GetShapeNames();
-		std::vector<int> oldOrderIds;
-		for (const auto& s : oldOrder) {
-			int blockID = GetBlockID(FindBlockByName<NiShape>(s));
-			if (blockID != NIF_NPOS)
-				oldOrderIds.push_back(blockID);
-		}
-
-		if (order.size() != oldOrder.size())
-			return;
-
-		// Get movement offset for each item.  This is the difference between old and new position.
-		delta.clear();
-		delta.resize(order.size());
-
-		for (size_t p = 0; p < oldOrder.size(); p++)
-			delta[p] = (find(order, oldOrder[p]) - order.begin()) - p;
-
-		hadoffset = false;
-		//Positive offsets mean that the item has moved down the list.  By necessity, that means another item has moved up the list.
-		// thus, we only need to move the "rising" items, the other blocks will naturally end up in the right place.
-
-		// find first negative delta, and raise it in list.  The first item can't have a negative delta
-		for (size_t i = 1; i < delta.size(); i++) {
-			// don't move positive or zero offset items.
-			if (delta[i] >= 0)
-				continue;
-
-			hadoffset = true;
-			int64_t c = 0 - delta[i];
-			size_t p = i;
-			while (c > 0) {
-				hdr.SwapBlocks(oldOrderIds[p], oldOrderIds[p - 1]);
-				p--;
-				c--;
-			}
-			break;
-		}
-
-	} while (hadoffset);
-}
-
-void NifFile::SetSortIndex(const NiRef& ref, std::vector<uint32_t>& newIndices, uint32_t& newIndex) {
-	if (ref.IsEmpty())
+	if (order.empty())
 		return;
 
-	// Assign new sort index
-	if (newIndices.size() > ref.index)
-		newIndices[ref.index] = ++newIndex;
-}
+	auto shapes = GetShapes();
+	if (order.size() != shapes.size())
+		return;
 
-void NifFile::SetSortIndex(const NiRef* ref, std::vector<uint32_t>& newIndices, uint32_t& newIndex) {
-	if (ref)
-		SetSortIndex(*ref, newIndices, newIndex);
-}
+	SortState sortState{};
+	sortState.newIndices.resize(hdr.GetNumBlocks());
+	for (size_t i = 0; i < sortState.newIndices.size(); i++)
+		sortState.newIndices[i] = static_cast<uint32_t>(i);
 
-void NifFile::SortAVObject(NiAVObject* avobj, std::vector<uint32_t>& newIndices, uint32_t& newIndex) {
-	for (auto& r : avobj->extraDataRefs)
-		SetSortIndex(r, newIndices, newIndex);
-
-	SetSortIndex(avobj->controllerRef, newIndices, newIndex);
-
-	for (auto& r : avobj->propertyRefs) {
-		SetSortIndex(r, newIndices, newIndex);
-
-		auto shader = hdr.GetBlock<NiShader>(r);
-		if (shader)
-			SetSortIndex(shader->TextureSetRef(), newIndices, newIndex);
+	for (auto& s : order) {
+		auto shape = FindBlockByName<NiShape>(s);
+		if (shape)
+			sortState.rootShapeOrder.push_back(GetBlockID(shape));
 	}
 
-	SetSortIndex(avobj->collisionRef, newIndices, newIndex);
+	auto root = GetRootNode();
+	if (root) {
+		sortState.newIndex = GetBlockID(root);
+		SetSortIndices(sortState.newIndex, sortState);
+	}
+
+	for (size_t i = 0; i < sortState.newIndices.size(); i++) {
+		uint32_t index = static_cast<uint32_t>(i);
+		if (sortState.visitedIndices.count(index) == 0) {
+			sortState.newIndices[i] = sortState.newIndex++;
+			sortState.visitedIndices.insert(index);
+		}
+	}
+
+	hdr.SetBlockOrder(sortState.newIndices);
 }
 
-void NifFile::SortShape(NiShape* shape, std::vector<uint32_t>& newIndices, uint32_t& newIndex) {
-	SetSortIndex(shape->DataRef(), newIndices, newIndex);
-	SetSortIndex(shape->SkinInstanceRef(), newIndices, newIndex);
+void NifFile::SetSortIndices(const NiRef& ref, SortState& sortState) {
+	SetSortIndices(ref.index, sortState);
+}
+
+void NifFile::SetSortIndices(const NiRef* ref, SortState& sortState) {
+	if (ref)
+		SetSortIndices(ref->index, sortState);
+}
+
+void NifFile::SetSortIndices(uint32_t refIndex, SortState& sortState) {
+	auto obj = hdr.GetBlock<NiObject>(refIndex);
+	if (!obj)
+		return;
+
+	bool fullySorted = false;
+
+	auto collision = dynamic_cast<NiCollisionObject*>(obj);
+	if (collision) {
+		SortCollision(collision, refIndex, sortState);
+		fullySorted = true;
+	}
+	else {
+		// Assign new sort index
+		if (sortState.visitedIndices.count(refIndex) == 0) {
+			sortState.newIndices[refIndex] = sortState.newIndex++;
+			sortState.visitedIndices.insert(refIndex);
+		}
+	}
+
+	if (!fullySorted) {
+		auto node = dynamic_cast<NiNode*>(obj);
+		if (node) {
+			SortGraph(node, sortState);
+			fullySorted = true;
+		}
+	}
+
+	if (!fullySorted) {
+		auto shape = dynamic_cast<NiShape*>(obj);
+		if (shape) {
+			SortShape(shape, sortState);
+			fullySorted = true;
+		}
+	}
+
+	if (!fullySorted) {
+		auto controller = dynamic_cast<NiTimeController*>(obj);
+		if (controller) {
+			SortController(controller, sortState);
+			fullySorted = true;
+		}
+	}
+
+	if (!fullySorted) {
+		auto shader = dynamic_cast<NiShader*>(obj);
+		if (shader) {
+			SortNiObjectNET(shader, sortState);
+			SetSortIndices(shader->TextureSetRef(), sortState);
+			fullySorted = true;
+		}
+	}
+
+	if (!fullySorted) {
+		// Default child sorting
+		std::vector<uint32_t> childIndices;
+		obj->GetChildIndices(childIndices);
+
+		for (auto& child : childIndices)
+			SetSortIndices(child, sortState);
+
+		fullySorted = true;
+	}
+}
+
+void NifFile::SortNiObjectNET(NiObjectNET* objnet, SortState& sortState) {
+	for (auto& r : objnet->extraDataRefs)
+		SetSortIndices(r, sortState);
+
+	SetSortIndices(objnet->controllerRef, sortState);
+
+	auto controller = hdr.GetBlock<NiTimeController>(objnet->controllerRef);
+	if (controller)
+		SortController(controller, sortState);
+}
+
+void NifFile::SortAVObject(NiAVObject* avobj, SortState& sortState) {
+	SortNiObjectNET(avobj, sortState);
+
+	for (auto& r : avobj->propertyRefs)
+		SetSortIndices(r, sortState);
+
+	auto col = hdr.GetBlock<NiCollisionObject>(avobj->collisionRef);
+	if (col)
+		SortCollision(col, avobj->collisionRef.index, sortState);
+}
+
+void NifFile::SortController(NiTimeController* controller, SortState& sortState) {
+	std::vector<uint32_t> childIndices;
+	controller->GetChildIndices(childIndices);
+
+	for (auto& index : childIndices) {
+		SetSortIndices(index, sortState);
+
+		auto controllerSequence = hdr.GetBlock<NiControllerSequence>(index);
+		if (controllerSequence) {
+			for (auto& cb : controllerSequence->controlledBlocks) {
+				auto interp = hdr.GetBlock<NiInterpolator>(cb.interpolatorRef);
+				if (interp)
+					SetSortIndices(cb.interpolatorRef, sortState);
+
+				auto subController = hdr.GetBlock<NiTimeController>(cb.controllerRef);
+				if (subController)
+					SetSortIndices(cb.controllerRef, sortState);
+			}
+
+			SetSortIndices(controllerSequence->textKeyRef, sortState);
+
+			auto animNotes = hdr.GetBlock<BSAnimNotes>(controllerSequence->animNotesRef);
+			if (animNotes) {
+				SetSortIndices(controllerSequence->animNotesRef, sortState);
+
+				for (auto& an : animNotes->animNoteRefs)
+					SetSortIndices(an, sortState);
+			}
+
+			for (auto& ar : controllerSequence->animNotesRefs) {
+				animNotes = hdr.GetBlock<BSAnimNotes>(ar);
+				if (animNotes) {
+					SetSortIndices(ar, sortState);
+
+					for (auto& an : animNotes->animNoteRefs)
+						SetSortIndices(an, sortState);
+				}
+			}
+		}
+	}
+}
+
+void NifFile::SortCollision(NiObject* parent, uint32_t parentIndex, SortState& sortState) {
+	auto constraint = dynamic_cast<bhkConstraint*>(parent);
+	if (constraint) {
+		for (auto& entityId : constraint->entityRefs) {
+			auto entity = hdr.GetBlock<NiObject>(entityId);
+			if (entity && sortState.visitedIndices.count(entityId.index) == 0)
+				SortCollision(entity, entityId.index, sortState);
+		}
+	}
+
+	auto constraintChain = dynamic_cast<bhkBallSocketConstraintChain*>(parent);
+	if (constraintChain) {
+		for (auto& entityId : constraintChain->chainedEntityRefs) {
+			auto entity = hdr.GetBlock<NiObject>(entityId);
+			if (entity && sortState.visitedIndices.count(entityId.index) == 0)
+				SortCollision(entity, entityId.index, sortState);
+		}
+
+		auto entityA = hdr.GetBlock<NiObject>(constraintChain->entityARef);
+		if (entityA && sortState.visitedIndices.count(constraintChain->entityARef.index) == 0)
+			SortCollision(entityA, constraintChain->entityARef.index, sortState);
+
+		auto entityB = hdr.GetBlock<NiObject>(constraintChain->entityBRef);
+		if (entityB && sortState.visitedIndices.count(constraintChain->entityBRef.index) == 0)
+			SortCollision(entityB, constraintChain->entityBRef.index, sortState);
+	}
+
+	std::vector<uint32_t> childIndices;
+	parent->GetChildIndices(childIndices);
+
+	for (auto& id : childIndices) {
+		auto child = hdr.GetBlock<NiObject>(id);
+		if (child && sortState.visitedIndices.count(id) == 0) {
+			bool childBeforeParent = child->HasType<bhkRefObject>() && !child->HasType<bhkConstraint>()
+									 && !child->HasType<bhkBallSocketConstraintChain>();
+			if (childBeforeParent)
+				SortCollision(child, id, sortState);
+		}
+	}
+
+	// Assign new sort index
+	if (sortState.visitedIndices.count(parentIndex) == 0) {
+		sortState.newIndices[parentIndex] = sortState.newIndex++;
+		sortState.visitedIndices.insert(parentIndex);
+	}
+
+	for (auto& id : childIndices) {
+		auto child = hdr.GetBlock<NiObject>(id);
+		if (child && sortState.visitedIndices.count(id) == 0) {
+			bool childBeforeParent = child->HasType<bhkRefObject>() && !child->HasType<bhkConstraint>()
+									 && !child->HasType<bhkBallSocketConstraintChain>();
+			if (!childBeforeParent)
+				SortCollision(child, id, sortState);
+		}
+	}
+}
+
+void NifFile::SortShape(NiShape* shape, SortState& sortState) {
+	SortAVObject(shape, sortState);
+
+	SetSortIndices(shape->DataRef(), sortState);
+	SetSortIndices(shape->SkinInstanceRef(), sortState);
 
 	auto niSkinInst = hdr.GetBlock<NiSkinInstance>(shape->SkinInstanceRef());
 	if (niSkinInst) {
-		SetSortIndex(niSkinInst->dataRef, newIndices, newIndex);
-		SetSortIndex(niSkinInst->skinPartitionRef, newIndices, newIndex);
+		SetSortIndices(niSkinInst->dataRef, sortState);
+		SetSortIndices(niSkinInst->skinPartitionRef, sortState);
 	}
 
 	auto bsSkinInst = hdr.GetBlock<BSSkinInstance>(shape->SkinInstanceRef());
 	if (bsSkinInst)
-		SetSortIndex(bsSkinInst->dataRef, newIndices, newIndex);
+		SetSortIndices(bsSkinInst->dataRef, sortState);
 
-	SetSortIndex(shape->ShaderPropertyRef(), newIndices, newIndex);
+	SetSortIndices(shape->ShaderPropertyRef(), sortState);
+	SetSortIndices(shape->AlphaPropertyRef(), sortState);
 
-	auto shader = hdr.GetBlock<NiShader>(shape->ShaderPropertyRef());
-	if (shader)
-		SetSortIndex(shader->TextureSetRef(), newIndices, newIndex);
+	std::vector<uint32_t> remainingChildIndices;
+	shape->GetChildIndices(remainingChildIndices);
 
-	SetSortIndex(shape->AlphaPropertyRef(), newIndices, newIndex);
+	// Sort remaining children
+	for (auto& child : remainingChildIndices)
+		SetSortIndices(child, sortState);
 }
 
-void NifFile::SortGraph(NiNode* root, std::vector<uint32_t>& newIndices, uint32_t& newIndex) {
-	auto& children = root->childRefs;
-	std::vector<uint32_t> indices;
-	children.GetIndices(indices);
-	children.Clear();
+void NifFile::SortGraph(NiNode* root, SortState& sortState) {
+	bool isRootNode = GetBlockID(root) == 0;
+	SortAVObject(root, sortState);
 
-	for (uint32_t i = 0; i < hdr.GetNumBlocks(); i++)
-		if (contains(indices, i))
-			children.AddBlockRef(i);
+	std::vector<uint32_t> childIndices;
+	root->childRefs.GetIndices(childIndices);
 
-	if (children.GetSize() > 0) {
-		if (hdr.GetVersion().IsOB() || hdr.GetVersion().IsFO3()) {
-			auto bookmark = children.begin();
-			auto peek = children.begin();
+	if (childIndices.empty())
+		return;
 
-			// For OB and FO3, put shapes at start of children
-			for (uint32_t i = 0; i < children.GetSize(); i++) {
-				auto shape = hdr.GetBlock<NiShape>(children.GetBlockRef(i));
-				if (shape) {
-					std::iter_swap(bookmark, peek);
-					++bookmark;
-				}
-				++peek;
-			}
-		}
-		else {
-			auto bookmark = children.end() - 1;
-			auto peek = children.end() - 1;
+	bool reorderChildRefs = !root->HasType<BSOrderedNode>();
+	if (reorderChildRefs) {
+		std::vector<uint32_t> newChildIndices;
+		newChildIndices.reserve(childIndices.size());
 
-			// Put shapes at end of children
-			for (uint32_t i = children.GetSize() - 1; i != NIF_NPOS; i--) {
-				auto shape = hdr.GetBlock<NiShape>(children.GetBlockRef(i));
-				if (shape) {
-					std::iter_swap(bookmark, peek);
-					if (i != 0)
-						--bookmark;
-				}
-
-				if (i != 0)
-					--peek;
-			}
-		}
-
-		auto bookmark = children.begin();
-		auto peek = children.begin();
+		NiBlockRefArray<NiAVObject> newChildRefs;
 
 		if (hdr.GetVersion().IsOB() || hdr.GetVersion().IsFO3()) {
-			// For OB and FO3, put nodes at start of children if they have children
-			for (uint32_t i = 0; i < children.GetSize(); i++) {
-				auto node = hdr.GetBlock<NiNode>(children.GetBlockRef(i));
+			// Order for OB/FO3:
+			// 1. Nodes with children
+			// 2. Shapes
+			// 3. other
+
+			// Add nodes with children
+			for (auto& index : childIndices) {
+				auto node = hdr.GetBlock<NiNode>(index);
 				if (node && node->childRefs.GetSize() > 0) {
-					std::iter_swap(bookmark, peek);
-					++bookmark;
+					newChildIndices.push_back(index);
+					newChildRefs.AddBlockRef(index);
 				}
-				++peek;
+			}
+
+			// Add shapes
+			std::vector<uint32_t> shapeIndices;
+			for (auto& index : childIndices) {
+				auto shape = hdr.GetBlock<NiShape>(index);
+				if (shape)
+					shapeIndices.push_back(index);
+			}
+
+			if (isRootNode) {
+				// Reorder shapes on root node if order is provided
+				if (sortState.rootShapeOrder.size() == shapeIndices.size()) {
+					std::vector<uint32_t> newShapeIndices(shapeIndices.size());
+					for (size_t si = 0; si < sortState.rootShapeOrder.size(); si++) {
+						auto it = find(shapeIndices, sortState.rootShapeOrder[si]);
+						if (it != shapeIndices.end())
+							newShapeIndices[si] = shapeIndices[std::distance(shapeIndices.begin(), it)];
+					}
+					shapeIndices = newShapeIndices;
+				}
+			}
+
+			for (auto& index : shapeIndices) {
+				newChildIndices.push_back(index);
+				newChildRefs.AddBlockRef(index);
 			}
 		}
 		else {
-			// Put nodes at start of children
-			for (uint32_t i = 0; i < children.GetSize(); i++) {
-				auto node = hdr.GetBlock<NiNode>(children.GetBlockRef(i));
+			// Order:
+			// 1. Nodes
+			// 2. Shapes
+			// 3. other
+
+			// Add nodes
+			for (auto& index : childIndices) {
+				auto node = hdr.GetBlock<NiNode>(index);
 				if (node) {
-					std::iter_swap(bookmark, peek);
-					++bookmark;
+					newChildIndices.push_back(index);
+					newChildRefs.AddBlockRef(index);
 				}
-				++peek;
 			}
-		}
 
-		// Update children
-		for (auto& child : children) {
-			if (!child.IsEmpty()) {
-				// Store new index of block
-				SetSortIndex(child, newIndices, newIndex);
-
-				// Update NiAVObject children
-				auto avobj = hdr.GetBlock<NiAVObject>(child);
-				if (avobj)
-					SortAVObject(avobj, newIndices, newIndex);
-
-				// Recurse through all children
-				auto node = hdr.GetBlock<NiNode>(child);
-				if (node)
-					SortGraph(node, newIndices, newIndex);
-
-				// Update shape children
-				auto shape = hdr.GetBlock<NiShape>(child);
+			// Add shapes
+			std::vector<uint32_t> shapeIndices;
+			for (auto& index : childIndices) {
+				auto shape = hdr.GetBlock<NiShape>(index);
 				if (shape)
-					SortShape(shape, newIndices, newIndex);
+					shapeIndices.push_back(index);
+			}
+
+			if (isRootNode) {
+				// Reorder shapes on root node if order is provided
+				if (sortState.rootShapeOrder.size() == shapeIndices.size()) {
+					std::vector<uint32_t> newShapeIndices(shapeIndices.size());
+					for (size_t si = 0; si < sortState.rootShapeOrder.size(); si++) {
+						auto it = find(shapeIndices, sortState.rootShapeOrder[si]);
+						if (it != shapeIndices.end())
+							newShapeIndices[si] = shapeIndices[std::distance(shapeIndices.begin(), it)];
+					}
+					shapeIndices = newShapeIndices;
+				}
+			}
+
+			for (auto& index : shapeIndices) {
+				newChildIndices.push_back(index);
+				newChildRefs.AddBlockRef(index);
 			}
 		}
 
-		// Update effect children
-		for (auto& effect : root->effectRefs) {
-			auto avobj = hdr.GetBlock<NiAVObject>(effect);
-			if (avobj)
-				SortAVObject(avobj, newIndices, newIndex);
+		// Add missing others
+		for (auto& index : childIndices) {
+			if (!contains(newChildIndices, index)) {
+				auto obj = hdr.GetBlock<NiObject>(index);
+				if (obj) {
+					newChildIndices.push_back(index);
+					newChildRefs.AddBlockRef(index);
+				}
+			}
 		}
+
+		// Add empty refs
+		for (auto& index : childIndices) {
+			if (index == NIF_NPOS) {
+				newChildIndices.push_back(index);
+				newChildRefs.AddBlockRef(index);
+			}
+		}
+
+		// Assign child ref array with new order
+		root->childRefs = newChildRefs;
 	}
+
+	std::vector<uint32_t> remainingChildIndices;
+	root->GetChildIndices(remainingChildIndices);
+
+	// Sort remaining children
+	for (auto& child : remainingChildIndices)
+		SetSortIndices(child, sortState);
 }
 
 void NifFile::PrettySortBlocks() {
 	if (hasUnknown)
 		return;
 
-	std::vector<uint32_t> newOrder(hdr.GetNumBlocks());
-	for (uint32_t i = 0; i < static_cast<uint32_t>(newOrder.size()); i++)
-		newOrder[i] = i;
+	SortState sortState{};
+	sortState.newIndices.resize(hdr.GetNumBlocks());
+	for (size_t i = 0; i < sortState.newIndices.size(); i++)
+		sortState.newIndices[i] = static_cast<uint32_t>(i);
 
 	auto root = GetRootNode();
 	if (root) {
-		uint32_t newIndex = GetBlockID(root);
-		SortAVObject(root, newOrder, newIndex);
-		SortGraph(root, newOrder, newIndex);
+		sortState.newIndex = GetBlockID(root);
+		SetSortIndices(sortState.newIndex, sortState);
 	}
 
-	hdr.SetBlockOrder(newOrder);
+	for (size_t i = 0; i < sortState.newIndices.size(); i++) {
+		uint32_t index = static_cast<uint32_t>(i);
+		if (sortState.visitedIndices.count(index) == 0) {
+			sortState.newIndices[i] = sortState.newIndex++;
+			sortState.visitedIndices.insert(index);
+		}
+	}
 
-	std::vector<NiObject*> tree;
-	GetTree(tree);
-
-	hdr.FixBlockAlignment(tree);
+	hdr.SetBlockOrder(sortState.newIndices);
 }
 
 bool NifFile::DeleteUnreferencedNodes(int* deletionCount) {
@@ -487,7 +676,7 @@ bool NifFile::DeleteUnreferencedNodes(int* deletionCount) {
 		if (node == root)
 			continue;
 
-		int blockId = GetBlockID(node);
+		uint32_t blockId = GetBlockID(node);
 		if (blockId == NIF_NPOS)
 			continue;
 
@@ -518,7 +707,7 @@ NiNode* NifFile::AddNode(const std::string& nodeName, const MatTransform& xformT
 	newNode->name.get() = nodeName;
 	newNode->SetTransformToParent(xformToParent);
 
-	int newNodeId = hdr.AddBlock(newNode.release());
+	uint32_t newNodeId = hdr.AddBlock(newNode.release());
 	if (newNodeId != NIF_NPOS)
 		parent->childRefs.AddBlockRef(newNodeId);
 
@@ -537,9 +726,7 @@ bool NifFile::CanDeleteNode(NiNode* node) {
 	node->GetChildRefs(refs);
 
 	// Only delete if the node has no child refs
-	return std::all_of(refs.cbegin(), refs.cend(), [](auto&& ref) {
-		return ref->IsEmpty();
-	});
+	return std::all_of(refs.cbegin(), refs.cend(), [](auto&& ref) { return ref->IsEmpty(); });
 }
 
 bool NifFile::CanDeleteNode(const std::string& nodeName) const {
@@ -643,7 +830,7 @@ std::vector<std::reference_wrapper<std::string>> NifFile::GetTexturePathRefs(NiS
 	if (shader) {
 		auto textureSet = hdr.GetBlock(shader->TextureSetRef());
 		if (textureSet) {
-			for (auto &t : textureSet->textures)
+			for (auto& t : textureSet->textures)
 				texturePaths.push_back(t.get());
 		}
 
@@ -881,25 +1068,36 @@ void NifFile::SetTextureSlot(NiShape* shape, std::string& inTexFile, uint32_t te
 void NifFile::TrimTexturePaths() {
 	auto fTrimPath = [&hdr = hdr, &isTerrain = isTerrain](std::string& tex) -> std::string& {
 		if (!tex.empty()) {
-			tex = std::regex_replace(tex,
-									 std::regex("/+|\\\\+"),
-									 "\\"); // Replace multiple slashes or forward slashes with one backslash
+			// Replace multiple slashes or forward slashes with one backslash
+			tex = std::regex_replace(tex, std::regex("/+|\\\\+"), "\\");
+
+			// Remove everything before the first occurence of "\textures\"
 			tex = std::regex_replace(tex,
 									 std::regex(R"(^(.*?)\\textures\\)", std::regex_constants::icase),
-									 ""); // Remove everything before the first occurence of "\textures\"
-			tex = std::regex_replace(tex, std::regex("^\\\\+"), ""); // Remove all backslashes from the front
+									 "");
+
+			// Remove all backslashes from the front
+			tex = std::regex_replace(tex, std::regex("^\\\\+"), "");
 
 			if (!hdr.GetVersion().IsOB() && !hdr.GetVersion().IsSpecial()) {
-				tex = std::regex_replace(
-					tex,
-					std::regex("^(?!^textures\\\\)", std::regex_constants::icase),
-					"textures\\"); // If the path doesn't start with "textures\", add it to the front
+				std::filesystem::path texPath(tex);
+				if (texPath.is_relative()) {
+					// If the path doesn't start with "textures\", add it to the front
+					tex = std::regex_replace(tex,
+											 std::regex("^(?!^textures\\\\)", std::regex_constants::icase),
+											 "textures\\");
+				}
 			}
 
-			if (isTerrain)
-				tex = std::regex_replace(tex,
-										 std::regex("^(?!^Data\\\\)", std::regex_constants::icase),
-										 "Data\\"); // If the path doesn't start with "Data\", add it to the front
+			// If the path doesn't start with "Data\", add it to the front
+			if (isTerrain) {
+				std::filesystem::path texPath(tex);
+				if (texPath.is_relative()) {
+					tex = std::regex_replace(tex,
+											 std::regex("^(?!^Data\\\\)", std::regex_constants::icase),
+											 "Data\\");
+				}
+			}
 		}
 		return tex;
 	};
@@ -2050,57 +2248,15 @@ void NifFile::GetTree(std::vector<NiObject*>& result, NiObject* parent) const {
 			return;
 	}
 
-	auto findResult = [&result](NiObject* obj) -> bool { return contains(result, obj); };
+	result.push_back(parent);
 
 	std::vector<uint32_t> indices;
 	parent->GetChildIndices(indices);
 
-	auto constraint = dynamic_cast<bhkConstraint*>(parent);
-	if (constraint) {
-		for (auto& entityId : constraint->entityRefs) {
-			auto entity = hdr.GetBlock<NiObject>(entityId);
-			if (entity && !findResult(entity))
-				GetTree(result, entity);
-		}
-	}
-
-	auto constraintChain = dynamic_cast<bhkBallSocketConstraintChain*>(parent);
-	if (constraintChain) {
-		for (auto& entityId : constraintChain->chainedEntityRefs) {
-			auto entity = hdr.GetBlock<NiObject>(entityId);
-			if (entity && !findResult(entity))
-				GetTree(result, entity);
-		}
-
-		auto entityA = hdr.GetBlock<NiObject>(constraintChain->entityARef);
-		if (entityA && !findResult(entityA))
-			GetTree(result, entityA);
-
-		auto entityB = hdr.GetBlock<NiObject>(constraintChain->entityBRef);
-		if (entityB && !findResult(entityB))
-			GetTree(result, entityB);
-	}
-
-	for (auto& id : indices) {
-		auto child = hdr.GetBlock<NiObject>(id);
-		if (child && !findResult(child)) {
-			bool childBeforeParent = child->HasType<bhkRefObject>() && !child->HasType<bhkConstraint>()
-									 && !child->HasType<bhkBallSocketConstraintChain>();
-			if (childBeforeParent)
-				GetTree(result, child);
-		}
-	}
-
-	result.push_back(parent);
-
-	for (auto& id : indices) {
-		auto child = hdr.GetBlock<NiObject>(id);
-		if (child && !findResult(child)) {
-			bool childBeforeParent = child->HasType<bhkRefObject>() && !child->HasType<bhkConstraint>()
-									 && !child->HasType<bhkBallSocketConstraintChain>();
-			if (!childBeforeParent)
-				GetTree(result, child);
-		}
+	for (auto& i : indices) {
+		auto child = hdr.GetBlock<NiObject>(i);
+		if (child && !contains(result, child))
+			GetTree(result, child);
 	}
 }
 
@@ -3787,7 +3943,7 @@ void NifFile::DeleteShape(NiShape* shape) {
 		hdr.DeleteBlock(*shape->DataRef());
 
 	if (shape->HasShaderProperty()) {
-		if (hdr.GetBlockRefCount(shape->ShaderPropertyRef()->index) == 1)
+		if (hdr.GetBlockRefCount(shape->ShaderPropertyRef()->index, false) == 1)
 			DeleteShader(shape);
 	}
 
@@ -3807,7 +3963,7 @@ void NifFile::DeleteShader(NiShape* shape) {
 	auto shader = hdr.GetBlock(shape->ShaderPropertyRef());
 	if (shader) {
 		if (shader->HasTextureSet()) {
-			if (hdr.GetBlockRefCount(shader->TextureSetRef()->index) == 1)
+			if (hdr.GetBlockRefCount(shader->TextureSetRef()->index, false) == 1)
 				hdr.DeleteBlock(*shader->TextureSetRef());
 		}
 
@@ -3823,7 +3979,7 @@ void NifFile::DeleteShader(NiShape* shape) {
 		if (shader) {
 			if (shader->HasType<BSShaderPPLightingProperty>() || shader->HasType<NiMaterialProperty>()) {
 				if (shader->HasTextureSet()) {
-					if (hdr.GetBlockRefCount(shader->TextureSetRef()->index) == 1)
+					if (hdr.GetBlockRefCount(shader->TextureSetRef()->index, false) == 1)
 						hdr.DeleteBlock(*shader->TextureSetRef());
 				}
 
