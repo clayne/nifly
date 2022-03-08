@@ -101,7 +101,7 @@ enum NiFileVersion : uint32_t {
 	V20_6_5_0 = 0x14060500,
 	V30_0_0_2 = 0x1E000002,
 	V30_1_0_3 = 0x1E010003,
-	UNKNOWN = 0x7FFFFFFF
+	UNKNOWN = 0x7FFFFFFF // should probably be changed back to 0xFFFFFFFF
 };
 
 class NiVersion {
@@ -557,19 +557,19 @@ public:
 };
 
 template<typename T, typename U>
-concept HasGetStringRefs = requires(const T t, const U u) {
+concept HasGetStringRefs = requires(T t, U u) {
 	t.GetStringRefs(u);
 };
 template<typename T, typename U>
-concept HasGetChildRefs = requires(const T t, const U u) {
+concept HasGetChildRefs = requires(T t, U u) {
 	t.GetChildRefs(u);
 };
 template<typename T, typename U>
-concept HasGetChildIndices = requires(const T t, const U u) {
+concept HasGetChildIndices = requires(T t, U u) {
 	t.GetChildIndices(u);
 };
 template<typename T, typename U>
-concept HasGetPtrs = requires(const T t, const U u) {
+concept HasGetPtrs = requires(T t, U u) {
 	t.GetPtrs(u);
 };
 
@@ -612,7 +612,8 @@ public:
 	}
 
 	void GetStringRefs(std::vector<NiStringRef*>& refs) {
-		if constexpr (HasGetStringRefs<ValueType, std::set<NiStringRef*>>)
+		// why is this necessary?
+		if constexpr (HasGetStringRefs<ValueType, std::vector<NiStringRef*>>)
 		{
 			for (auto& e : *this)
 				e.GetStringRefs(refs);
@@ -844,13 +845,13 @@ public:
 
 	void GetIndices(std::vector<uint32_t>& indices) override {
 		for (auto& r : refs)
-			if (!r.IsEmpty())
+			if (!r.IsEmpty()) // is this a good idea?
 				indices.push_back(r.index);
 	}
 
 	void GetIndexPtrs(std::set<NiRef*>& indices) override {
 		for (auto& r : refs)
-			if (!r.IsEmpty())
+			if (!r.IsEmpty()) // is this a good idea?
 				indices.insert(&r);
 	}
 

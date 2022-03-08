@@ -39,7 +39,7 @@ static T Round(T a, int places)
 {
 	static_assert(std::is_floating_point<T>::value, "Round<T>: T must be floating point");
 
-	const T shift = pow(static_cast<T>(10.0), places);
+	const T shift = static_cast<T>(std::pow(static_cast<T>(10.0), places));
 
 	return Round(a * shift) / shift;
 }
@@ -121,7 +121,7 @@ struct Vector3 {
 		, y(Y)
 		, z(Z) {}
 
-	Vector3(const Vector3& rhs) {
+	constexpr Vector3(const Vector3& rhs) {
 		x = rhs.x;
 		y = rhs.y;
 		z = rhs.z;
