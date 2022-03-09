@@ -360,7 +360,9 @@ enum PropagationMode : uint32_t {
 enum CollisionMode : uint32_t { CM_USE_OBB, CM_USE_TRI, CM_USE_ABV, CM_NOTEST, CM_USE_NIBOUND };
 
 enum BoundVolumeType : uint32_t {
-	BASE_BV = 0xFFFFFFFF,
+	// use signed max to work in SWIG
+	BASE_BV = 0x7FFFFFFF,
+	// BASE_BV = 0xFFFFFFFF,
 	SPHERE_BV = 0,
 	BOX_BV = 1,
 	CAPSULE_BV = 2,

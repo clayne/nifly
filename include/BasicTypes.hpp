@@ -43,20 +43,21 @@ class DERIVED : public NiCloneableStreamable<DERIVED, BASE>
 #endif
 
 namespace nifly {
-constexpr auto NIF_NPOS = static_cast<uint32_t>(-1);
+// auto for these numbers does not work with SWIG
+constexpr uint32_t NIF_NPOS = static_cast<uint32_t>(-1);
 
-constexpr auto NiCharMin = std::numeric_limits<char>::min();
-constexpr auto NiCharMax = std::numeric_limits<char>::max();
-constexpr auto NiByteMin = std::numeric_limits<uint8_t>::min();
-constexpr auto NiByteMax = std::numeric_limits<uint8_t>::max();
-constexpr auto NiUShortMin = std::numeric_limits<uint16_t>::min();
-constexpr auto NiUShortMax = std::numeric_limits<uint16_t>::max();
-constexpr auto NiUIntMin = std::numeric_limits<uint32_t>::min();
-constexpr auto NiUIntMax = std::numeric_limits<uint32_t>::max();
-constexpr auto NiFloatMin = std::numeric_limits<float>::lowest();
-constexpr auto NiFloatMax = std::numeric_limits<float>::max();
-constexpr auto NiVec3Min = Vector3(NiFloatMin, NiFloatMin, NiFloatMin);
-constexpr auto NiVec4Min = Vector4(NiFloatMin, NiFloatMin, NiFloatMin, NiFloatMin);
+constexpr char NiCharMin = std::numeric_limits<char>::min();
+constexpr char NiCharMax = std::numeric_limits<char>::max();
+constexpr uint8_t NiByteMin = std::numeric_limits<uint8_t>::min();
+constexpr uint8_t NiByteMax = std::numeric_limits<uint8_t>::max();
+constexpr uint16_t NiUShortMin = std::numeric_limits<uint16_t>::min();
+constexpr uint16_t NiUShortMax = std::numeric_limits<uint16_t>::max();
+constexpr uint32_t NiUIntMin = std::numeric_limits<uint32_t>::min();
+constexpr uint32_t NiUIntMax = std::numeric_limits<uint32_t>::max();
+constexpr float NiFloatMin = std::numeric_limits<float>::lowest();
+constexpr float NiFloatMax = std::numeric_limits<float>::max();
+constexpr Vector3 NiVec3Min = Vector3(NiFloatMin, NiFloatMin, NiFloatMin);
+constexpr Vector4 NiVec4Min = Vector4(NiFloatMin, NiFloatMin, NiFloatMin, NiFloatMin);
 
 enum NiFileVersion : uint32_t {
 	V2_3 = 0x02030000,
@@ -101,7 +102,9 @@ enum NiFileVersion : uint32_t {
 	V20_6_5_0 = 0x14060500,
 	V30_0_0_2 = 0x1E000002,
 	V30_1_0_3 = 0x1E010003,
-	UNKNOWN = 0xFFFFFFFF
+	// use signed max to work with SWIG
+	UNKNOWN = 0x7FFFFFFF
+	// UNKNOWN = 0xFFFFFFFF
 };
 
 class NiVersion {
@@ -556,6 +559,24 @@ public:
 	}
 };
 
+// these concepts are needed because otherwise SWIG wrapper uses functions that are not present e.g. in NiStringRef
+template<typename T, typename U>
+concept HasGetStringRefs = requires(T t, U u) {
+	t.GetStringRefs(u);
+};
+template<typename T, typename U>
+concept HasGetChildRefs = requires(T t, U u) {
+	t.GetChildRefs(u);
+};
+template<typename T, typename U>
+concept HasGetChildIndices = requires(T t, U u) {
+	t.GetChildIndices(u);
+};
+template<typename T, typename U>
+concept HasGetPtrs = requires(T t, U u) {
+	t.GetPtrs(u);
+};
+
 template<typename ValueType, typename SizeType = uint32_t>
 class NiSyncVector : public NiVectorBase<ValueType, SizeType> {
 	using Base = NiVectorBase<ValueType, SizeType>;
@@ -594,24 +615,37 @@ public:
 			e.Sync(stream);
 	}
 
+    // the above concepts are used here to avoid SWIG wrapper using functions that are not present e.g. in NiStringRef
 	void GetStringRefs(std::vector<NiStringRef*>& refs) {
-		for (auto& e : *this)
-			e.GetStringRefs(refs);
+		if constexpr (HasGetStringRefs<ValueType, std::vector<NiStringRef*>>)
+		{
+			for (auto& e : *this)
+				e.GetStringRefs(refs);
+		}
 	}
 
 	void GetChildRefs(std::set<NiRef*>& refs) {
-		for (auto& e : *this)
-			e.GetChildRefs(refs);
+		if constexpr (HasGetChildRefs<ValueType, std::set<NiRef*>>)
+		{
+			for (auto& e : *this)
+				e.GetChildRefs(refs);
+		}
 	}
 
 	void GetChildIndices(std::vector<uint32_t>& indices) {
-		for (auto& e : *this)
-			e.GetChildIndices(indices);
+		if constexpr (HasGetChildIndices<ValueType, std::vector<uint32_t>>)
+		{
+			for (auto& e : *this)
+				e.GetChildIndices(indices);
+		}
 	}
 
 	void GetPtrs(std::set<NiPtr*>& ptrs) {
-		for (auto& e : *this)
-			e.GetPtrs(ptrs);
+		if constexpr (HasGetPtrs<ValueType, std::set<NiPtr*>>)
+		{
+			for (auto& e : *this)
+				e.GetPtrs(ptrs);
+		}
 	}
 };
 
