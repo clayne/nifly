@@ -12,6 +12,7 @@ See the included GPLv3 LICENSE file
 #include <cmath>
 #include <cstring>
 #include <vector>
+#include <functional>
 
 namespace nifly {
 constexpr float EPSILON = 0.0001f;

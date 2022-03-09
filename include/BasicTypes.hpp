@@ -101,7 +101,7 @@ enum NiFileVersion : uint32_t {
 	V20_6_5_0 = 0x14060500,
 	V30_0_0_2 = 0x1E000002,
 	V30_1_0_3 = 0x1E010003,
-	UNKNOWN = 0x7FFFFFFF // should probably be changed back to 0xFFFFFFFF
+	UNKNOWN = 0x7FFFFFFF
 };
 
 class NiVersion {
@@ -612,7 +612,6 @@ public:
 	}
 
 	void GetStringRefs(std::vector<NiStringRef*>& refs) {
-		// why is this necessary?
 		if constexpr (HasGetStringRefs<ValueType, std::vector<NiStringRef*>>)
 		{
 			for (auto& e : *this)
@@ -845,14 +844,12 @@ public:
 
 	void GetIndices(std::vector<uint32_t>& indices) override {
 		for (auto& r : refs)
-			if (!r.IsEmpty()) // is this a good idea?
-				indices.push_back(r.index);
+			indices.push_back(r.index);
 	}
 
 	void GetIndexPtrs(std::set<NiRef*>& indices) override {
 		for (auto& r : refs)
-			if (!r.IsEmpty()) // is this a good idea?
-				indices.insert(&r);
+			indices.insert(&r);
 	}
 
 	void SetIndices(const std::vector<uint32_t>& indices) override {
