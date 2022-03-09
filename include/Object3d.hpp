@@ -121,8 +121,10 @@ struct Vector3 {
 		: x(X)
 		, y(Y)
 		, z(Z) {}
-
-	constexpr Vector3(const Vector3& rhs) {
+#ifndef SWIG
+	constexpr
+#endif
+	Vector3(const Vector3& rhs) {
 		x = rhs.x;
 		y = rhs.y;
 		z = rhs.z;
@@ -193,7 +195,9 @@ struct Vector3 {
 	constexpr Vector3 operator+(const Vector3& other) const {
 		return Vector3(x + other.x, y + other.y, z + other.z);
 	}
+#ifndef SWIG
 	[[deprecated("Replaced by ComponentMultiplyBy; should not have been an operator")]]
+#endif
 	Vector3& operator*=(const Vector3& other) {
 		x *= other.x;
 		y *= other.y;
@@ -206,14 +210,20 @@ struct Vector3 {
 		z *= other.z;
 		return (*this);
 	}
+#ifndef SWIG
 	[[deprecated("Replaced by ComponentMultiply; should not have been an operator")]]
+#endif
+
 	constexpr Vector3 operator*(const Vector3& other) const {
 		return Vector3(x * other.x, y * other.y, z * other.z);
 	}
 	constexpr Vector3 ComponentMultiply(const Vector3& other) const {
 		return Vector3(x * other.x, y * other.y, z * other.z);
 	}
+#ifndef SWIG
 	[[deprecated("Replaced by ComponentDivideBy; should not have been an operator")]]
+#endif
+
 	Vector3& operator/=(const Vector3& other) {
 		x /= other.x;
 		y /= other.y;
@@ -226,7 +236,10 @@ struct Vector3 {
 		z /= other.z;
 		return (*this);
 	}
+#ifndef SWIG
 	[[deprecated("Replaced by ComponentDivide; should not have been an operator")]]
+#endif
+
 	constexpr Vector3 operator/(const Vector3& other) const {
 		return Vector3(x / other.x, y / other.y, z / other.z);
 	}
@@ -324,10 +337,9 @@ struct Vector3 {
 
 	constexpr Vector3 cross(const Vector3& other) const {
 		Vector3 tmp;
-		tmp.x = y * other.z - z * other.y;
-		tmp.y = z * other.x - x * other.z;
-		tmp.z = x * other.y - y * other.x;
-		return tmp;
+		return { y * other.z - z * other.y,
+				z * other.x - x * other.z,
+				x * other.y - y * other.x };
 	}
 
 	constexpr float dot(const Vector3& other) const { return x * other.x + y * other.y + z * other.z; }
@@ -522,7 +534,10 @@ class Matrix3 {
 
 public:
 	constexpr Matrix3() {}
-	constexpr Matrix3(const Vector3& r1, const Vector3& r2, const Vector3& r3)
+#ifndef SWIG
+	constexpr
+#endif
+	Matrix3(const Vector3& r1, const Vector3& r2, const Vector3& r3)
 		: rows{r1, r2, r3} {}
 	constexpr Matrix3(float m00, float m01, float m02, float m10, float m11, float m12, float m20, float m21, float m22)
 		: rows{Vector3(m00, m01, m02), Vector3(m10, m11, m12), Vector3(m20, m21, m22)} {}
@@ -551,8 +566,11 @@ public:
 		return *this;
 	}
 
-	constexpr Matrix3 operator+(const Matrix3& other) const {
-		return Matrix3(rows[0] + other[0], rows[1] + other[1], rows[2] + other[2]);
+#ifndef SWIG
+	constexpr
+#endif
+	Matrix3 operator+(const Matrix3& other) const {
+		return { rows[0] + other[0], rows[1] + other[1], rows[2] + other[2] };
 	}
 
 	Matrix3& operator+=(const Matrix3& other) {
@@ -560,8 +578,11 @@ public:
 		return *this;
 	}
 
-	constexpr Matrix3 operator-(const Matrix3& other) const {
-		return Matrix3(rows[0] - other[0], rows[1] - other[1], rows[2] - other[2]);
+#ifndef SWIG
+	constexpr
+#endif
+	Matrix3 operator-(const Matrix3& other) const {
+		return{ rows[0] - other[0], rows[1] - other[1], rows[2] - other[2] };
 	}
 
 	Matrix3& operator-=(const Matrix3& other) {
@@ -594,11 +615,26 @@ public:
 					   rows[2][0] * v.x + rows[2][1] * v.y + rows[2][2] * v.z);
 	}
 
-	[[deprecated("Should not have been an operator; replace with multiplying by Vector3(f,f,f)")]]
-	constexpr Vector3 operator*(const float f) const {
-		return Vector3(rows[0][0] * f + rows[0][1] * f + rows[0][2] * f,
-					   rows[1][0] * f + rows[1][1] * f + rows[1][2] * f,
-					   rows[2][0] * f + rows[2][1] * f + rows[2][2] * f);
+#ifndef SWIG
+	constexpr
+#endif
+	Matrix3 operator*(float f) const {
+		return Matrix3(rows[0] * f, rows[1] * f, rows[2] * f);
+	}
+
+	Matrix3& operator*=(float f) {
+		return *this = *this * f;
+	}
+
+#ifndef SWIG
+	constexpr
+#endif
+	Matrix3 operator/(float f) const {
+		return Matrix3(rows[0] / f, rows[1] / f, rows[2] / f);
+	}
+
+	Matrix3& operator/=(float f) {
+		return *this = *this / f;
 	}
 
 	constexpr Matrix3 Transpose() const {
@@ -738,7 +774,9 @@ public:
 	constexpr float& operator[](int index) { return m[index]; }
 	constexpr float operator[](int index) const { return m[index]; }
 
+	// std::equal does onot work with SWIG
 	bool operator==(const Matrix4& other) { return m == other.m; }
+	// bool operator==(const Matrix4& other) { return (std::equal(m, m + sizeof m / sizeof *m, other.m)); }
 
 	bool IsIdentity() { return *this == Matrix4(); }
 
@@ -994,7 +1032,10 @@ struct BoundingSphere {
 
 	constexpr BoundingSphere() {}
 
-	constexpr BoundingSphere(const Vector3& center_, const float radius_)
+#ifndef SWIG
+	constexpr
+#endif
+	BoundingSphere(const Vector3& center_, const float radius_)
 		: center(center_)
 		, radius(radius_) {}
 
@@ -1128,7 +1169,9 @@ struct MatTransform {
 		return m;
 	}
 
+#ifndef SWIG
 	[[deprecated("Does something nonsensical")]]
+#endif
 	Vector3 GetVector() const { return translation + rotation * Vector3(scale, scale, scale); }
 
 	// ApplyTransform applies this MatTransform to a position vector v by

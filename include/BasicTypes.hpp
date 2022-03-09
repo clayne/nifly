@@ -43,6 +43,7 @@ class DERIVED : public NiCloneableStreamable<DERIVED, BASE>
 #endif
 
 namespace nifly {
+// auto for these numbers does not work with SWIG
 constexpr uint32_t NIF_NPOS = static_cast<uint32_t>(-1);
 
 constexpr char NiCharMin = std::numeric_limits<char>::min();
@@ -55,8 +56,8 @@ constexpr uint32_t NiUIntMin = std::numeric_limits<uint32_t>::min();
 constexpr uint32_t NiUIntMax = std::numeric_limits<uint32_t>::max();
 constexpr float NiFloatMin = std::numeric_limits<float>::lowest();
 constexpr float NiFloatMax = std::numeric_limits<float>::max();
-const Vector3 NiVec3Min = Vector3(NiFloatMin, NiFloatMin, NiFloatMin);
-const Vector4 NiVec4Min = Vector4(NiFloatMin, NiFloatMin, NiFloatMin, NiFloatMin);
+constexpr Vector3 NiVec3Min = Vector3(NiFloatMin, NiFloatMin, NiFloatMin);
+constexpr Vector4 NiVec4Min = Vector4(NiFloatMin, NiFloatMin, NiFloatMin, NiFloatMin);
 
 enum NiFileVersion : uint32_t {
 	V2_3 = 0x02030000,
@@ -101,7 +102,9 @@ enum NiFileVersion : uint32_t {
 	V20_6_5_0 = 0x14060500,
 	V30_0_0_2 = 0x1E000002,
 	V30_1_0_3 = 0x1E010003,
+	// use signed max to work with SWIG
 	UNKNOWN = 0x7FFFFFFF
+	// UNKNOWN = 0xFFFFFFFF
 };
 
 class NiVersion {
@@ -556,6 +559,7 @@ public:
 	}
 };
 
+// these concepts are needed because otherwise SWIG wrapper uses functions that are not present e.g. in NiStringRef
 template<typename T, typename U>
 concept HasGetStringRefs = requires(T t, U u) {
 	t.GetStringRefs(u);
@@ -611,6 +615,7 @@ public:
 			e.Sync(stream);
 	}
 
+    // the above concepts are used here to avoid SWIG wrapper using functions that are not present e.g. in NiStringRef
 	void GetStringRefs(std::vector<NiStringRef*>& refs) {
 		if constexpr (HasGetStringRefs<ValueType, std::vector<NiStringRef*>>)
 		{
