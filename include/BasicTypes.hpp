@@ -43,20 +43,20 @@ class DERIVED : public NiCloneableStreamable<DERIVED, BASE>
 #endif
 
 namespace nifly {
-constexpr uint32_t NIF_NPOS = static_cast<uint32_t>(-1);
+constexpr auto NIF_NPOS = static_cast<uint32_t>(-1);
 
-constexpr char NiCharMin = std::numeric_limits<char>::min();
-constexpr char NiCharMax = std::numeric_limits<char>::max();
-constexpr uint8_t NiByteMin = std::numeric_limits<uint8_t>::min();
-constexpr uint8_t NiByteMax = std::numeric_limits<uint8_t>::max();
-constexpr uint16_t NiUShortMin = std::numeric_limits<uint16_t>::min();
-constexpr uint16_t NiUShortMax = std::numeric_limits<uint16_t>::max();
-constexpr uint32_t NiUIntMin = std::numeric_limits<uint32_t>::min();
-constexpr uint32_t NiUIntMax = std::numeric_limits<uint32_t>::max();
-constexpr float NiFloatMin = std::numeric_limits<float>::lowest();
-constexpr float NiFloatMax = std::numeric_limits<float>::max();
-const Vector3 NiVec3Min = Vector3(NiFloatMin, NiFloatMin, NiFloatMin);
-const Vector4 NiVec4Min = Vector4(NiFloatMin, NiFloatMin, NiFloatMin, NiFloatMin);
+constexpr auto NiCharMin = std::numeric_limits<char>::min();
+constexpr auto NiCharMax = std::numeric_limits<char>::max();
+constexpr auto NiByteMin = std::numeric_limits<uint8_t>::min();
+constexpr auto NiByteMax = std::numeric_limits<uint8_t>::max();
+constexpr auto NiUShortMin = std::numeric_limits<uint16_t>::min();
+constexpr auto NiUShortMax = std::numeric_limits<uint16_t>::max();
+constexpr auto NiUIntMin = std::numeric_limits<uint32_t>::min();
+constexpr auto NiUIntMax = std::numeric_limits<uint32_t>::max();
+constexpr auto NiFloatMin = std::numeric_limits<float>::lowest();
+constexpr auto NiFloatMax = std::numeric_limits<float>::max();
+constexpr auto NiVec3Min = Vector3(NiFloatMin, NiFloatMin, NiFloatMin);
+constexpr auto NiVec4Min = Vector4(NiFloatMin, NiFloatMin, NiFloatMin, NiFloatMin);
 
 enum NiFileVersion : uint32_t {
 	V2_3 = 0x02030000,
@@ -101,7 +101,7 @@ enum NiFileVersion : uint32_t {
 	V20_6_5_0 = 0x14060500,
 	V30_0_0_2 = 0x1E000002,
 	V30_1_0_3 = 0x1E010003,
-	UNKNOWN = 0x7FFFFFFF
+	UNKNOWN = 0xFFFFFFFF
 };
 
 class NiVersion {
@@ -556,23 +556,6 @@ public:
 	}
 };
 
-template<typename T, typename U>
-concept HasGetStringRefs = requires(const T t, const U u) {
-	t.GetStringRefs(u);
-};
-template<typename T, typename U>
-concept HasGetChildRefs = requires(const T t, const U u) {
-	t.GetChildRefs(u);
-};
-template<typename T, typename U>
-concept HasGetChildIndices = requires(const T t, const U u) {
-	t.GetChildIndices(u);
-};
-template<typename T, typename U>
-concept HasGetPtrs = requires(const T t, const U u) {
-	t.GetPtrs(u);
-};
-
 template<typename ValueType, typename SizeType = uint32_t>
 class NiSyncVector : public NiVectorBase<ValueType, SizeType> {
 	using Base = NiVectorBase<ValueType, SizeType>;
@@ -612,35 +595,23 @@ public:
 	}
 
 	void GetStringRefs(std::vector<NiStringRef*>& refs) {
-		if constexpr (HasGetStringRefs<ValueType, std::set<NiStringRef*>>)
-		{
-			for (auto& e : *this)
-				e.GetStringRefs(refs);
-		}
+		for (auto& e : *this)
+			e.GetStringRefs(refs);
 	}
 
 	void GetChildRefs(std::set<NiRef*>& refs) {
-		if constexpr (HasGetChildRefs<ValueType, std::set<NiRef*>>)
-		{
-			for (auto& e : *this)
-				e.GetChildRefs(refs);
-		}
+		for (auto& e : *this)
+			e.GetChildRefs(refs);
 	}
 
 	void GetChildIndices(std::vector<uint32_t>& indices) {
-		if constexpr (HasGetChildIndices<ValueType, std::vector<uint32_t>>)
-		{
-			for (auto& e : *this)
-				e.GetChildIndices(indices);
-		}
+		for (auto& e : *this)
+			e.GetChildIndices(indices);
 	}
 
 	void GetPtrs(std::set<NiPtr*>& ptrs) {
-		if constexpr (HasGetPtrs<ValueType, std::set<NiPtr*>>)
-		{
-			for (auto& e : *this)
-				e.GetPtrs(ptrs);
-		}
+		for (auto& e : *this)
+			e.GetPtrs(ptrs);
 	}
 };
 
@@ -844,14 +815,12 @@ public:
 
 	void GetIndices(std::vector<uint32_t>& indices) override {
 		for (auto& r : refs)
-			if (!r.IsEmpty())
-				indices.push_back(r.index);
+			indices.push_back(r.index);
 	}
 
 	void GetIndexPtrs(std::set<NiRef*>& indices) override {
 		for (auto& r : refs)
-			if (!r.IsEmpty())
-				indices.insert(&r);
+			indices.insert(&r);
 	}
 
 	void SetIndices(const std::vector<uint32_t>& indices) override {

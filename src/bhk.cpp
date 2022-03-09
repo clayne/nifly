@@ -19,16 +19,6 @@ void NiCollisionObject::GetPtrs(std::set<NiPtr*>& ptrs) {
 		ptrs.insert(&targetRef);
 }
 
-BoundingVolume::BoundingVolume() : bvUnion(new UnionBV) {}
-
-BoundingVolume::BoundingVolume(const BoundingVolume& other)
-	: collisionType(other.collisionType)
-	, bvSphere(other.bvSphere)
-	, bvBox(other.bvBox)
-	, bvCapsule(other.bvCapsule)
-	, bvUnion(new UnionBV(*other.bvUnion))
-	, bvHalfSpace(other.bvHalfSpace) {}
-
 BoundingVolume& BoundingVolume::operator=(const BoundingVolume& other) {
 	collisionType = other.collisionType;
 	bvSphere = other.bvSphere;

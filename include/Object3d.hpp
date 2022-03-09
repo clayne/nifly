@@ -746,7 +746,7 @@ public:
 	constexpr float& operator[](int index) { return m[index]; }
 	constexpr float operator[](int index) const { return m[index]; }
 
-	bool operator==(const Matrix4& other) { return m == other.m; }
+	bool operator==(const Matrix4& other) { return (std::equal(m, m + sizeof m / sizeof *m, other.m)); }
 
 	bool IsIdentity() { return *this == Matrix4(); }
 
